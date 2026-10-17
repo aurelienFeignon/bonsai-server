@@ -1,3 +1,4 @@
+import json
 import hashlib
 import importlib.util
 import os
@@ -69,6 +70,36 @@ class ConfigurationTest(unittest.TestCase):
     def test_model_filename_cannot_escape_directory(self):
         with self.assertRaisesRegex(ValueError, 'basename'):
             module.download({'MODEL_FILE': '../escape.gguf'})
+
+
+class EntrypointTests(unittest.TestCase):
+    def run_entrypoint(self, settings):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake = root / 'server'
+            fake.write_text('#!/usr/bin/env python3\nimport json,sys\nprint(json.dumps(sys.argv[1:]))\n')
+            fake.chmod(0o700)
+            script = root / 'entrypoint'
+            script.write_text((ROOT/'docker/entrypoint.sh').read_text().replace('/opt/bonsai/llama-server', str(fake)))
+            env = {**os.environ, 'LLAMA_API_KEY': 'test-only', **settings}
+            result = subprocess.run(['sh', str(script), 'literal $(touch sentinel)'], env=env,
+                                    capture_output=True, text=True, check=True, cwd=root)
+            self.assertFalse((root/'sentinel').exists())
+            return json.loads(result.stdout)
+
+    def test_native_template_keeps_kwargs_as_one_literal_argument(self):
+        kwargs = '{"enable_thinking":false}'
+        args = self.run_entrypoint({'BONSAI_CHAT_TEMPLATE':'auto', 'BONSAI_JINJA':'true', 'BONSAI_CHAT_TEMPLATE_KWARGS':kwargs})
+        self.assertIn('--jinja', args)
+        self.assertNotIn('--chat-template', args)
+        self.assertEqual(args[args.index('--chat-template-kwargs')+1], kwargs)
+        self.assertIn('literal $(touch sentinel)', args)
+
+    def test_explicit_legacy_template_still_works(self):
+        args = self.run_entrypoint({'BONSAI_CHAT_TEMPLATE':'chatml', 'BONSAI_JINJA':'false', 'BONSAI_CHAT_TEMPLATE_KWARGS':''})
+        self.assertIn('--no-jinja', args)
+        self.assertEqual(args[args.index('--chat-template')+1], 'chatml')
+        self.assertNotIn('--chat-template-kwargs', args)
 
 
 if __name__ == '__main__':

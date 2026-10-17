@@ -1,9 +1,10 @@
 # Bonsai Server
 
 Serveur LLM Docker autonome, compatible OpenAI, réutilisable par Dedale ou une
-autre application. La configuration testée utilise Bonsai 27B **1-bit Q1_0** sur
-GPU NVIDIA : 4096 tokens, un slot et environ 4 Gio de VRAM sur RTX 5070. Il s'agit
-de la famille historique Bonsai, distincte de Bonsai 2.
+autre application. Le profil sélectionne **Ternary-Bonsai-2-27B-PQ2_0** sur GPU NVIDIA :
+4096 tokens et un slot. Les poids occupent 7 206 168 928 octets ; la VRAM
+nécessaire doit être mesurée sur le GPU cible. L’ancien profil Bonsai 1 Q1_0
+reste disponible dans l’historique Git.
 
 ## Démarrer
 
@@ -53,9 +54,10 @@ docker compose up -d --force-recreate --wait
 | `BONSAI_CTX_SIZE`, `BONSAI_PARALLEL` | Contexte total 4096, un slot ; le contexte disponible par requête est réparti entre les slots |
 | `BONSAI_GPU_ID`, `BONSAI_GPU_LAYERS` | GPU 0, 999 couches pour tout décharger sur GPU ; 0 couche laisse les calculs sur CPU mais le profil réserve toujours un GPU NVIDIA |
 | `BONSAI_BATCH_SIZE`, `BONSAI_UBATCH_SIZE` | Batch et microbatch 128 |
-| `BONSAI_THREADS`, `BONSAI_CPU_LIMIT`, `BONSAI_RAM_LIMIT` | 4 threads, 4 CPU, 8g de RAM ; ces limites ne plafonnent pas la VRAM |
+| `BONSAI_THREADS`, `BONSAI_CPU_LIMIT`, `BONSAI_RAM_LIMIT` | 4 threads, 4 CPU, 12g de RAM ; ces limites ne plafonnent pas la VRAM |
 | `BONSAI_FLASH_ATTN`, `BONSAI_CACHE_TYPE_K`, `BONSAI_CACHE_TYPE_V` | Flash attention `on`, cache KV `f16` |
-| `BONSAI_JINJA`, `BONSAI_CHAT_TEMPLATE` | `false`, `chatml` : voie texte qualifiée pour le JSON |
+| `BONSAI_JINJA`, `BONSAI_CHAT_TEMPLATE` | `true`, `auto` : template Jinja natif du GGUF |
+| `BONSAI_CHAT_TEMPLATE_KWARGS` | JSON littéral pour le template, `{"enable_thinking":false}` par défaut |
 | `BONSAI_REASONING`, `BONSAI_REASONING_BUDGET`, `BONSAI_REASONING_FORMAT` | `off`, 0, `deepseek` ; le raisonnement et les outils restent non qualifiés |
 | `BONSAI_CONTEXT_SHIFT` | `false` : refus d'un contexte trop long au lieu de déplacer le début |
 | `BONSAI_TEMPERATURE`, `BONSAI_TOP_P`, `BONSAI_TOP_K`, `BONSAI_MIN_P`, `BONSAI_MAX_TOKENS` | Défauts serveur 0.1 / 0.95 / 20 / 0.05 / 600 |
@@ -115,27 +117,62 @@ python3 -m unittest discover -s tests -v
 python3 scripts/smoke.py
 ```
 
-Cinq tests hors ligne vérifient la priorité de configuration, la préservation de
+Sept tests hors ligne vérifient la priorité de configuration, la préservation de
 la clé et des réglages, les chemins de modèles et le contrôle d'intégrité.
 Le test HTTP vérifie l'authentification, l'identité du modèle, le contexte et les
-slots effectifs, puis une génération JSON. Les contextes 2048 et 4096 ont été
-vérifiés sur le serveur réel, ainsi que deux slots avec partage du contexte. Le RAG Dedale reste fonctionnel après extraction.
+slots effectifs, puis une génération JSON. Les vérifications historiques des contextes 2048/4096 et des deux slots
+concernaient Bonsai 1. La migration Bonsai 2 est qualifiée séparément, à 4096
+tokens et un slot. Ne pas assimiler les mesures de mémoire des deux modèles.
 
 Seuls les réglages de base sont qualifiés : les autres choix de modèle, cache
 KV, raisonnement, contexte et parallélisme demandent une vérification sur le
-matériel cible. La mémoire augmente avec les paramètres ; 4 Gio n'est pas une
-limite garantie. La qualité du modèle 1-bit reste imparfaite (répétitions,
-français maladroit ou faits hors sujet). Les références résolubles ne prouvent
+matériel cible. La mémoire augmente avec les paramètres.
+Les mesures de qualité Bonsai 1 ne sont pas transposables à Bonsai 2. Les références résolubles ne prouvent
 pas automatiquement chaque affirmation. Vision, outils et charge ne sont pas
 qualifiés par ces tests textuels.
 
 ## Provenance
 
-Poids : [prism-ml/Bonsai-27B-gguf](https://huggingface.co/prism-ml/Bonsai-27B-gguf),
-révision `f10afb355f104535e3e3e98cf7ab7795c72bd292` ; fiche Apache-2.0.
+Poids : [prism-ml/Ternary-Bonsai-2-27B-gguf](https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf),
+révision `b072e1d3b35a0a630cece372c2127528e0994386` ; fiche Apache-2.0.
 Runtime : [PrismML llama.cpp](https://github.com/PrismML-Eng/llama.cpp/releases/tag/prism-b10777-e3de715),
 release `prism-b10777-e3de715`, Linux CUDA 12.8.
 Démo de référence : [Bonsai-demo](https://github.com/PrismML-Eng/Bonsai-demo),
 commit examiné `db871ea96bffff5ce5609873c412b75d7cd5ba3c`.
 Les fichiers `.env.example` et `Dockerfile` fixent les empreintes des poids et du
 runtime. Leurs licences respectives restent applicables.
+
+## Migrer depuis Bonsai 1
+
+`setup.py` préserve volontairement le `.env` existant : mettre à jour ensemble
+les cinq variables `MODEL_*` d’identité/empreinte depuis `.env.example`, puis
+`BONSAI_MODEL_ALIAS=bonsai2-27b-pq2`, `BONSAI_RAM_LIMIT=12g`,
+`BONSAI_JINJA=true`, `BONSAI_CHAT_TEMPLATE=auto`,
+`BONSAI_CHAT_TEMPLATE_KWARGS='{"enable_thinking":false}'` et
+`BONSAI_REASONING_FORMAT=deepseek`. Garder la clé et le réseau existants.
+Télécharger/vérifier le nouveau GGUF avant de recréer le serveur, puis
+synchroniser les clients et les tester. L’ancien GGUF peut rester sur disque
+pour un retour arrière ; il n’est pas chargé en même temps dans le GPU.
+
+`auto` omet le drapeau `--chat-template` et utilise celui embarqué dans le modèle.
+Un nom explicite comme `chatml` reste paramétrable pour les anciens modèles.
+Le JSON des kwargs est transmis comme un seul argument sans interprétation shell.
+
+## Validation Bonsai 2 — 17 octobre 2026
+
+Poids PQ2_0 vérifiés par taille et SHA-256 avant chargement. Serveur sain,
+4096 tokens/un slot, authentification et génération JSON par schéma réussies.
+Le template natif Jinja avec `reasoning-format=none` a provoqué des erreurs
+HTTP400 « Failed to initialize samplers » sur les schémas JSON. Le réglage
+retenu est `reasoning=off`, budget0, extraction `deepseek`, template natif,
+kwargs `enable_thinking=false` : le JSON est alors exploitable. Les kwargs sont
+encore acceptés par ce runtime mais leur usage pour enable_thinking y est déprécié.
+
+RTX5070 : 7178 Mio après chargement, 7226 Mio observés après les générations
+RAG/OpenCode, soit environ7,1Gio pour le modèle. Triton reste à694Mio. Ce sont
+des observations à4K/un slot, pas une limite garantie ni un test de charge.
+Sept tests hors ligne passent. Le RAG Dedale produit trois réponses structurées
+réelles avec citations résolues et OpenCode reçoit une proposition de code.
+Ces contrôles ne qualifient ni l’implication de tous les faits, ni un agent
+autonome avec outils. Une réponse RAG sur le stress des cultures sélectionne
+encore des capteurs de guidage hors sujet ; les propositions restent à réviser.
