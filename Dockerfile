@@ -1,4 +1,4 @@
-# Runtime officiel PrismML pour le format Q1_0, isolé des autres services GPU.
+# Runtime officiel PrismML pour les formats natifs Bonsai (Q1_0/PQ2_0/PTQ1_0), isolé des autres services GPU.
 ARG CUDA_BASE_IMAGE=nvidia/cuda:12.8.1-runtime-ubuntu24.04
 FROM ${CUDA_BASE_IMAGE}
 RUN apt-get update \
